@@ -18,10 +18,35 @@
         @keyframes grassMove { 0%{background-position-x:0;} 100%{background-position-x:-50px;} }
         @keyframes pop { 0%{transform:scale(0);} 70%{transform:scale(1.2);} 100%{transform:scale(1);} }
         @keyframes confettiFall { 0%{transform:translateY(-20px) rotate(0);opacity:1;} 100%{transform:translateY(100vh) rotate(720deg);opacity:0;} }
+        @keyframes bgShift { 0%{background-position:0% 50%;} 50%{background-position:100% 50%;} 100%{background-position:0% 50%;} }
+        @keyframes wiggle { 0%,100%{transform:rotate(0);} 25%{transform:rotate(-10deg) scale(1.1);} 75%{transform:rotate(10deg) scale(1.1);} }
+        @keyframes floaty { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
+        @keyframes wake { 0%{transform:scaleX(0.6);opacity:0.6;} 100%{transform:scaleX(1.3);opacity:0;} }
+
+        /* living background — sits on body so it never restarts on re-render */
+        body { background: linear-gradient(135deg,#e0f2fe,#dbeafe,#e0e7ff,#eff6ff,#f0f9ff); background-size: 400% 400%; animation: bgShift 20s ease infinite; }
+
+        /* tactile press feedback on every button */
+        button { transition: transform .12s cubic-bezier(0.34,1.6,0.64,1); }
+        button:active { transform: scale(0.93); }
 
         .boat { animation: bob 3s ease-in-out infinite; }
         .car { animation: vroom 0.6s ease-in-out infinite; }
         .turtle { animation: waddle 1.5s ease-in-out infinite; }
+        .floaty { animation: floaty 3s ease-in-out infinite; }
+
+        /* door emoji wiggles when you hover its card */
+        .door-emoji { transition: transform .3s; display:inline-block; }
+        .hover-lift:hover .door-emoji { animation: wiggle .6s ease-in-out; }
+
+        /* tappable team picker */
+        .team-card { transition: all .18s cubic-bezier(0.34,1.6,0.64,1); }
+        .team-card:hover { transform: translateY(-3px) scale(1.03); }
+        .team-card:active { transform: scale(0.96); }
+        .team-card.sel { transform: scale(1.05); box-shadow: 0 0 0 4px #f59e0b, 0 10px 24px rgba(0,0,0,0.18); }
+        .team-emoji { display:inline-block; transition: transform .2s; }
+        .team-card:hover .team-emoji { transform: scale(1.25) rotate(-8deg); }
+        .team-card.sel .team-emoji { animation: wiggle .5s ease-in-out; }
 
         .track-boat { background: linear-gradient(180deg,#7dd3fc 0%,#38bdf8 40%,#0ea5e9 100%); position:relative; overflow:hidden; }
         .track-boat::after { content:''; position:absolute; inset:0; background-image: repeating-linear-gradient(90deg, rgba(255,255,255,0.25) 0 8px, transparent 8px 40px); animation: waveMove 3s linear infinite; opacity:0.5; }
@@ -308,6 +333,12 @@
                 state.view='c/'+ck; confetti(); showMessage(`🎉 You joined ${CHALLENGES[ck].short} on ${team}!`);
             });
         };
+        // team picker in the join form — DOM-only so the typed name isn't wiped by a re-render
+        window.selectTeam = (el, team) => {
+            document.querySelectorAll('[data-teamcard]').forEach(x=>x.classList.remove('sel'));
+            el.classList.add('sel');
+            const inp = document.getElementById('jTeam'); if(inp) inp.value = team;
+        };
         window.pickMe = (ck, id) => { state.me[ck]=id; localStorage.setItem('tc_me2',JSON.stringify(state.me)); state.view='c/'+ck; render(); };
         window.leaveEnrollment = (ck) => { delete state.me[ck]; localStorage.setItem('tc_me2',JSON.stringify(state.me)); render(); };
 
@@ -367,10 +398,10 @@
             const el=document.getElementById('app');
             if(!allLoaded()){ el.innerHTML=`<div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-sky-100 to-blue-200"><div class="text-center"><div class="text-6xl mb-4">📖</div><p class="text-xl font-bold text-blue-900">Loading The Challenge...</p></div></div>`; return; }
             el.innerHTML = `
-                <div class="min-h-screen bg-gradient-to-br from-sky-100 via-blue-100 to-indigo-100">
+                <div class="min-h-screen">
                     <div class="max-w-6xl mx-auto p-3 md:p-6">
                         <div class="text-center pt-4 mb-5 cursor-pointer" onclick="setView('home')">
-                            <div class="text-5xl md:text-7xl mb-2">🏁</div>
+                            <div class="text-5xl md:text-7xl mb-2 floaty">🏁</div>
                             <h1 class="text-3xl md:text-5xl font-black text-blue-900">The Challenge</h1>
                             <p class="text-lg md:text-2xl font-bold text-blue-700">Riverton 24th Tongan Ward</p>
                         </div>
@@ -411,7 +442,7 @@
                         const mine=enrollment(c.key);
                         return `<div class="bg-white rounded-3xl shadow-xl p-6 border-2 ${c.border} hover-lift cursor-pointer flex flex-col" onclick="setView('c/${c.key}')">
                             <div class="flex items-center justify-between mb-2">
-                                <div class="text-5xl">${c.emoji}</div>
+                                <div class="text-5xl door-emoji">${c.emoji}</div>
                                 <span class="bg-gradient-to-r ${c.grad} text-white px-3 py-1 rounded-full text-sm font-black">${c.tag}</span>
                             </div>
                             <h3 class="text-xl font-black ${c.text} mb-1">${c.title}</h3>
@@ -589,7 +620,17 @@
                         <div class="space-y-4">
                             <div><label class="block text-sm font-bold mb-2 text-gray-700">Your Name *</label><input id="jName" type="text" placeholder="First and last name" class="w-full px-4 py-3 border-2 ${c.border} rounded-xl focus:outline-none font-semibold" /></div>
                             <div><label class="block text-sm font-bold mb-2 text-gray-700">Ward Organization</label><select id="jOrg" class="w-full px-4 py-3 border-2 ${c.border} rounded-xl focus:outline-none font-semibold"><option value="">Select...</option>${ORGANIZATIONS.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div>
-                            <div><label class="block text-sm font-bold mb-2 text-gray-700">Team *</label><select id="jTeam" class="w-full px-4 py-3 border-2 ${c.border} rounded-xl focus:outline-none font-semibold"><option value="">Pick your team...</option>${c.teams.map(t=>{const n=teamMembers(ck,t).length;return `<option value="${t}">${teamEmoji(t)} ${t}${n?` (${n})`:''}</option>`;}).join('')}</select></div>
+                            <div>
+                                <label class="block text-sm font-bold mb-2 text-gray-700">Pick your team * <span class="font-normal text-gray-400">(tap one)</span></label>
+                                <input type="hidden" id="jTeam" value="" />
+                                <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
+                                    ${c.teams.map(t=>{const n=teamMembers(ck,t).length;return `<button type="button" data-teamcard onclick="selectTeam(this,'${t}')" class="team-card ${c.bg} border-2 ${c.border} rounded-2xl px-2 py-3 text-center">
+                                        <div class="text-3xl team-emoji">${teamEmoji(t)}</div>
+                                        <div class="text-xs font-black ${c.text} mt-1 leading-tight">${t}</div>
+                                        ${n?`<div class="text-[10px] text-gray-400 font-bold mt-0.5">${n} aboard</div>`:''}
+                                    </button>`;}).join('')}
+                                </div>
+                            </div>
                             <button onclick="joinChallenge('${ck}')" class="w-full bg-gradient-to-r ${c.grad} text-white px-6 py-4 rounded-xl font-black text-lg hover:opacity-90 transition-all shadow-lg hover-lift">${c.racer} Join the ${c.raceName}!</button>
                         </div>
                     </div>
