@@ -153,31 +153,40 @@
             ]
         };
 
-        // Team pool — shared across all three challenges. A person joins each challenge
-        // independently, so "Coconut Crabs" in the 21-Day race is tracked separately from
-        // "Coconut Crabs" in the Read race. Add/remove/rename freely here.
-        const TEAM_LIST = [
-            { name:'Coconut Crabs',   emoji:'🦀' },
-            { name:'Island Turtles',  emoji:'🐢' },
-            { name:'Hungry Hippos',   emoji:'🦛' },
-            { name:'Lazy Lions',      emoji:'🦁' },
-            { name:'Buffalo Boys',    emoji:'🦬' },
-            { name:'Coconut Monkeys', emoji:'🐒' },
-            { name:'Island Roosters', emoji:'🐓' },
-            { name:'Flying Pigs',     emoji:'🐷' },
-            { name:'Big Bears',       emoji:'🐻' },
-            { name:'Savage Seagulls', emoji:'🐦' },
-            { name:'Party Parrots',   emoji:'🦜' },
-            { name:'Sleepy Sloths',   emoji:'🦥' },
-            { name:'Mighty Mongoose', emoji:'🐾' },
-            { name:'Tongan Tigers',   emoji:'🐅' },
-            { name:'Island Iguanas',  emoji:'🦎' },
-            { name:'Giant Geckos',    emoji:'🦎' },
-            { name:'Buffalo Brothers',emoji:'🦬' },
-            { name:'The Wild Whales', emoji:'🐋' }
+        // Teams — 7 per challenge, each with an emoji and a playful theme.
+        // A person joins each challenge independently, so teams don't overlap between
+        // challenges. Move a team to a different challenge by moving its line between the
+        // three arrays below (keep 7 in each). teamEmoji/teamTheme look up across all.
+        const TEAMS_21 = [
+            { name:'Hungry Horses',       emoji:'🐴', theme:'always asking, "What are we eating?"' },
+            { name:'Gout Masters',        emoji:'🦶', theme:'the official foot squad 😂' },
+            { name:'Island Time Turtles', emoji:'🐢', theme:'never early, never in a hurry' },
+            { name:'BBQ Bears',           emoji:'🐻', theme:'protect the grill at all costs' },
+            { name:'Kava Koalas',         emoji:'🐨', theme:'permanently relaxed' },
+            { name:'Talanoa Toucans',     emoji:'🦜', theme:'somehow every conversation lasts 2 hours' },
+            { name:'Maloha Monkeys',      emoji:'🐒', theme:'maximum energy, minimum planning' }
         ];
-        const TEAM_NAMES = TEAM_LIST.map(t => t.name);
-        const teamEmoji = (name) => { const t = TEAM_LIST.find(x => x.name === name); return t ? t.emoji : '🏳️'; };
+        const TEAMS_BOM = [
+            { name:'Big Belly Buffalo',   emoji:'🦬', theme:'built for the buffet' },
+            { name:'Sunday Sloths',       emoji:'🦥', theme:'"We\'ll do it after church."' },
+            { name:'Makai Meerkats',      emoji:'🐿️', theme:'always looking around to see what\'s happening' },
+            { name:'Big Island Elephants',emoji:'🐘', theme:'big presence, bigger appetite' },
+            { name:'Late Roosters',       emoji:'🐓', theme:'supposed to wake everybody up… at noon 😂' },
+            { name:'Sideways Crabs',      emoji:'🦀', theme:'taking the scenic route everywhere' },
+            { name:'Buffet Hippos',       emoji:'🦛', theme:'no plate left behind' }
+        ];
+        const TEAMS_READ = [
+            { name:'Stubborn Goats',      emoji:'🐐', theme:'"Nope. We\'re doing it this way."' },
+            { name:'Fefe Whales',         emoji:'🐋', theme:'massive splash, massive personality' },
+            { name:'Coconut Geckos',      emoji:'🦎', theme:'somehow everywhere at once' },
+            { name:'Lazy Lions',          emoji:'🦁', theme:'kings of the couch' },
+            { name:'Makai Pigs',          emoji:'🐷', theme:'food disappears mysteriously' },
+            { name:'Eagle Eyes',          emoji:'🦅', theme:'sees everything happening 😂' },
+            { name:'Slow Mo Snails',      emoji:'🐌', theme:'"We\'re on our way!" …30 minutes later' }
+        ];
+        const ALL_TEAMS = [...TEAMS_21, ...TEAMS_BOM, ...TEAMS_READ];
+        const teamEmoji = (name) => { const t = ALL_TEAMS.find(x => x.name === name); return t ? t.emoji : '🏳️'; };
+        const teamTheme = (name) => { const t = ALL_TEAMS.find(x => x.name === name); return t ? t.theme : ''; };
 
         // Challenge definitions — the heart of the three-door hub
         const CHALLENGES = {
@@ -186,7 +195,7 @@
                 emoji:'📅', racer:'⛵', raceName:'Boat Race', track:'track-boat', racerAnim:'boat',
                 grad:'from-blue-500 to-sky-600', text:'text-blue-700', bg:'bg-blue-50', border:'border-blue-200',
                 desc:'Read every day for 21 days straight. Keep the streak alive!',
-                teams: TEAM_NAMES,
+                teams: TEAMS_21.map(t=>t.name),
                 // racer upgrades by team progress (0..1): raft → sailboat → ship
                 tiers: [ {min:0,e:'🛶'}, {min:0.34,e:'⛵'}, {min:0.67,e:'🚢'} ]
             },
@@ -195,7 +204,7 @@
                 emoji:'📕', racer:'🚗', raceName:'Car Race', track:'track-car', racerAnim:'car',
                 grad:'from-amber-500 to-orange-600', text:'text-amber-700', bg:'bg-amber-50', border:'border-amber-200',
                 desc:'Hand out copies of the Book of Mormon. Every copy moves your car forward!',
-                teams: TEAM_NAMES,
+                teams: TEAMS_BOM.map(t=>t.name),
                 // scooter → sedan → race car
                 tiers: [ {min:0,e:'🛵'}, {min:0.34,e:'🚗'}, {min:0.67,e:'🏎️'} ]
             },
@@ -204,7 +213,7 @@
                 emoji:'📖', racer:'🐢', raceName:'Turtle Race', track:'track-turtle', racerAnim:'turtle',
                 grad:'from-green-500 to-emerald-600', text:'text-green-700', bg:'bg-green-50', border:'border-green-200',
                 desc:'Read all 239 chapters, 1 Nephi to Moroni. Slow and steady finishes the race!',
-                teams: TEAM_NAMES,
+                teams: TEAMS_READ.map(t=>t.name),
                 // hatchling → turtle → big tortoise
                 tiers: [ {min:0,e:'🥚'}, {min:0.34,e:'🐢'}, {min:0.67,e:'🐉'} ]
             }
@@ -381,8 +390,11 @@
         window.toggleShoutout = (id) => { if(!state.leader) return; const post=state.wall.find(w=>w.id===id); update(ref(db,`theChallenge/wall/${id}`),{shoutout:!post.shoutout}); };
 
         // leader
-        window.enterLeader = () => { const c=prompt('Enter leader code:'); if(c===LEADER_CODE){state.leader=true;showMessage('🔑 Leader mode on.');} else if(c!==null) showMessage('Incorrect code.'); };
+        window.enterLeader = () => { const c=prompt('Enter leader code:'); if(c===LEADER_CODE){state.leader=true;render();showMessage('🔑 Leader mode on — tap 🗑️ on any name to remove.');} else if(c!==null) showMessage('Incorrect code.'); };
+        window.exitLeader = () => { state.leader=false; render(); };
         window.removePerson = (ck,id) => { if(!state.leader){showMessage('Leader mode required.');return;} const p=state.data[ck].find(x=>x.id===id); if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}?`)) remove(ref(db,`theChallenge/enroll_${ck}/${id}`)); };
+        // self-remove: delete my own enrollment from the database (handy for testing)
+        window.removeMe = (ck) => { const p=enrollment(ck); if(!p) return; if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}? This deletes their progress.`)){ remove(ref(db,`theChallenge/enroll_${ck}/${p.id}`)); delete state.me[ck]; localStorage.setItem('tc_me2',JSON.stringify(state.me)); showMessage('Removed.'); } };
         window.setGoal = () => { if(!state.leader) return; const g=prompt('Ward hand-out goal:', state.settings.handoutGoal); if(g) update(settingsRef,{handoutGoal:parseInt(g)||HANDOUT_GOAL_DEFAULT}); };
 
         window.printQR = (ck) => {
@@ -409,10 +421,12 @@
                         <div class="flex gap-2 justify-center mb-6 flex-wrap">
                             ${navBtn('home','🏠 Home')}
                             ${navBtn('wall','💬 Wall')}
+                            <button onclick="${state.leader?'exitLeader()':'enterLeader()'}" class="px-5 py-2.5 rounded-xl font-black text-sm md:text-base transition-all hover-lift border-2 ${state.leader?'bg-gradient-to-r from-amber-500 to-amber-600 text-white border-amber-700':'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'} shadow">${state.leader?'🔑 Leader ✓':'🔑 Leader'}</button>
                         </div>
+                        ${state.leader?`<div class="text-center mb-4 -mt-2"><span class="inline-block bg-amber-100 text-amber-800 text-xs font-bold px-4 py-1.5 rounded-full border border-amber-300">🔑 Leader mode on — open any challenge and tap 🗑️ next to a name to remove them</span></div>`:''}
                         ${renderView()}
-                        <div class="text-center mt-8 pb-6 text-sm text-blue-500">
-                            ${state.leader?'🔑 Leader mode':`<button onclick="enterLeader()" class="underline">leader login</button>`}
+                        <div class="text-center mt-8 pb-6 text-sm text-blue-400">
+                            Riverton 24th Tongan Ward · The Challenge 🏁
                         </div>
                     </div>
                 </div>`;
@@ -505,7 +519,7 @@
                         ${Array.from({length:CHALLENGE_DAYS},(_,d)=>{const ch=(p.days||[])[d];return `<button onclick="toggleDay('21',${d})" class="aspect-square rounded-xl text-sm font-black flex items-center justify-center transition-all ${ch?'bg-gradient-to-br from-blue-500 to-sky-600 text-white shadow-md':'bg-gray-100 text-gray-400 border-2 border-gray-200 hover:border-gray-400'}">${ch?'✓':d+1}</button>`;}).join('')}
                     </div>
                     ${renderBadgeStrip('21',p)}
-                    <button onclick="leaveEnrollment('21')" class="mt-4 text-xs text-gray-400 underline">not you? switch</button>
+                    <div class="mt-4 flex gap-4"><button onclick="leaveEnrollment('21')" class="text-xs text-gray-400 underline">not you? switch</button><button onclick="removeMe('21')" class="text-xs text-red-400 underline">remove me</button></div>
                 </div>`;
             }
             if (ck==='bom') {
@@ -519,7 +533,7 @@
                         <button onclick="addHandout(1)" class="bg-gradient-to-r from-amber-600 to-orange-600 text-white px-8 h-12 rounded-xl font-black text-lg hover:opacity-90">+1 handed out 🙌</button>
                     </div>
                     ${renderBadgeStrip('bom',p)}
-                    <button onclick="leaveEnrollment('bom')" class="mt-4 text-xs text-gray-400 underline">not you? switch</button>
+                    <div class="mt-4 flex gap-4"><button onclick="leaveEnrollment('bom')" class="text-xs text-gray-400 underline">not you? switch</button><button onclick="removeMe('bom')" class="text-xs text-red-400 underline">remove me</button></div>
                 </div>`;
             }
             if (ck==='read') {
@@ -545,7 +559,7 @@
                         <input type="number" value="${p.chaptersRead||0}" min="0" max="${TOTAL_CHAPTERS}" onchange="setChapters(this.value)" class="w-20 px-3 h-11 border-2 border-green-200 rounded-lg font-bold" />
                     </div>
                     ${renderBadgeStrip('read',p)}
-                    <button onclick="leaveEnrollment('read')" class="mt-4 text-xs text-gray-400 underline">not you? switch</button>
+                    <div class="mt-4 flex gap-4"><button onclick="leaveEnrollment('read')" class="text-xs text-gray-400 underline">not you? switch</button><button onclick="removeMe('read')" class="text-xs text-red-400 underline">remove me</button></div>
                 </div>`;
             }
         }
@@ -605,7 +619,7 @@
             if(!teams.length) return '';
             return `<div class="space-y-4">${teams.map(t=>`<div class="bg-white rounded-3xl shadow-xl p-4 md:p-6 border-2 ${c.border}">
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2"><h3 class="text-lg md:text-xl font-black ${c.text}">${teamEmoji(t.team)} ${t.team}</h3><span class="${c.bg} ${c.text} px-3 py-1 rounded-full font-bold text-sm">${t.members.length} · ${Math.round(teamProgress(ck,t.team)*100)}%</span></div>
-                <div class="grid sm:grid-cols-2 gap-2">${t.members.map(p=>`<div class="flex items-center justify-between ${c.bg} rounded-xl px-4 py-2 border ${c.border}"><span class="font-bold text-gray-800 text-sm">${p.name}</span><span class="flex items-center gap-2"><span class="font-black ${c.text} text-sm">${personValue(ck,p)}</span>${state.leader?`<button onclick="removePerson('${ck}','${p.id}')" class="text-red-400 hover:text-red-600 text-sm">🗑️</button>`:''}</span></div>`).join('')}</div>
+                <div class="grid sm:grid-cols-2 gap-2">${t.members.map(p=>`<div class="flex items-center justify-between ${c.bg} rounded-xl px-4 py-2 border ${c.border}"><span class="font-bold text-gray-800 text-sm">${teamEmoji(p.team)} ${p.name}</span><span class="flex items-center gap-2"><span class="font-black ${c.text} text-sm">${personValue(ck,p)}</span>${state.leader?`<button onclick="removePerson('${ck}','${p.id}')" title="Remove ${p.name}" class="text-red-500 hover:text-white hover:bg-red-500 rounded-lg px-2 py-1 text-base border border-red-200">🗑️</button>`:''}</span></div>`).join('')}</div>
             </div>`).join('')}</div>`;
         }
 
@@ -624,10 +638,11 @@
                                 <label class="block text-sm font-bold mb-2 text-gray-700">Pick your team * <span class="font-normal text-gray-400">(tap one)</span></label>
                                 <input type="hidden" id="jTeam" value="" />
                                 <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-80 overflow-y-auto pr-1">
-                                    ${c.teams.map(t=>{const n=teamMembers(ck,t).length;return `<button type="button" data-teamcard onclick="selectTeam(this,'${t}')" class="team-card ${c.bg} border-2 ${c.border} rounded-2xl px-2 py-3 text-center">
+                                    ${c.teams.map(t=>{const n=teamMembers(ck,t).length;return `<button type="button" data-teamcard onclick="selectTeam(this,'${t}')" class="team-card ${c.bg} border-2 ${c.border} rounded-2xl px-2 py-3 text-center flex flex-col">
                                         <div class="text-3xl team-emoji">${teamEmoji(t)}</div>
                                         <div class="text-xs font-black ${c.text} mt-1 leading-tight">${t}</div>
-                                        ${n?`<div class="text-[10px] text-gray-400 font-bold mt-0.5">${n} aboard</div>`:''}
+                                        <div class="text-[10px] text-gray-500 italic mt-0.5 leading-snug flex-1">${teamTheme(t)}</div>
+                                        ${n?`<div class="text-[10px] text-gray-400 font-bold mt-1">${n} aboard</div>`:''}
                                     </button>`;}).join('')}
                                 </div>
                             </div>
