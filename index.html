@@ -99,7 +99,9 @@
         const settingsRef = ref(db, 'theChallenge/settings');
 
         const CHALLENGE_DAYS = 21;
-        const PAGE_URL = window.location.origin + window.location.pathname;
+        // Hard-pinned so QR codes / flyer links always use the exact (case-sensitive) URL,
+        // no matter how someone arrived. Keep the trailing slash.
+        const PAGE_URL = 'https://filipefa1998-sudo.github.io/The-Challenge/';
         const LEADER_CODE = 'riverton24'; // change to your own leader passcode
         const HANDOUT_GOAL_DEFAULT = 100;
 
@@ -392,7 +394,8 @@
         // leader
         window.enterLeader = () => { const c=prompt('Enter leader code:'); if(c===LEADER_CODE){state.leader=true;render();showMessage('🔑 Leader mode on — tap 🗑️ on any name to remove.');} else if(c!==null) showMessage('Incorrect code.'); };
         window.exitLeader = () => { state.leader=false; render(); };
-        window.removePerson = (ck,id) => { if(!state.leader){showMessage('Leader mode required.');return;} const p=state.data[ck].find(x=>x.id===id); if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}?`)) remove(ref(db,`theChallenge/enroll_${ck}/${id}`)); };
+        // Anyone can remove an entry (fixes accidental / wrong-challenge joins). Confirm guards taps.
+        window.removePerson = (ck,id) => { const p=state.data[ck].find(x=>x.id===id); if(!p) return; if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}? This deletes their progress.`)){ remove(ref(db,`theChallenge/enroll_${ck}/${id}`)); if(state.me[ck]===id){ delete state.me[ck]; localStorage.setItem('tc_me2',JSON.stringify(state.me)); } showMessage(`Removed ${p.name}.`); } };
         // self-remove: delete my own enrollment from the database (handy for testing)
         window.removeMe = (ck) => { const p=enrollment(ck); if(!p) return; if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}? This deletes their progress.`)){ remove(ref(db,`theChallenge/enroll_${ck}/${p.id}`)); delete state.me[ck]; localStorage.setItem('tc_me2',JSON.stringify(state.me)); showMessage('Removed.'); } };
         window.setGoal = () => { if(!state.leader) return; const g=prompt('Ward hand-out goal:', state.settings.handoutGoal); if(g) update(settingsRef,{handoutGoal:parseInt(g)||HANDOUT_GOAL_DEFAULT}); };
@@ -619,7 +622,7 @@
             if(!teams.length) return '';
             return `<div class="space-y-4">${teams.map(t=>`<div class="bg-white rounded-3xl shadow-xl p-4 md:p-6 border-2 ${c.border}">
                 <div class="flex items-center justify-between mb-3 flex-wrap gap-2"><h3 class="text-lg md:text-xl font-black ${c.text}">${teamEmoji(t.team)} ${t.team}</h3><span class="${c.bg} ${c.text} px-3 py-1 rounded-full font-bold text-sm">${t.members.length} · ${Math.round(teamProgress(ck,t.team)*100)}%</span></div>
-                <div class="grid sm:grid-cols-2 gap-2">${t.members.map(p=>`<div class="flex items-center justify-between ${c.bg} rounded-xl px-4 py-2 border ${c.border}"><span class="font-bold text-gray-800 text-sm">${teamEmoji(p.team)} ${p.name}</span><span class="flex items-center gap-2"><span class="font-black ${c.text} text-sm">${personValue(ck,p)}</span>${state.leader?`<button onclick="removePerson('${ck}','${p.id}')" title="Remove ${p.name}" class="text-red-500 hover:text-white hover:bg-red-500 rounded-lg px-2 py-1 text-base border border-red-200">🗑️</button>`:''}</span></div>`).join('')}</div>
+                <div class="grid sm:grid-cols-2 gap-2">${t.members.map(p=>`<div class="flex items-center justify-between ${c.bg} rounded-xl px-4 py-2 border ${c.border}"><span class="font-bold text-gray-800 text-sm">${teamEmoji(p.team)} ${p.name}</span><span class="flex items-center gap-2"><span class="font-black ${c.text} text-sm">${personValue(ck,p)}</span><button onclick="removePerson('${ck}','${p.id}')" title="Remove ${p.name}" class="text-red-400 hover:text-white hover:bg-red-500 rounded-lg px-2 py-1 text-base border border-red-200 transition-colors">🗑️</button></span></div>`).join('')}</div>
             </div>`).join('')}</div>`;
         }
 
