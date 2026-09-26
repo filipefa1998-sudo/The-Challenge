@@ -97,6 +97,9 @@
         };
         const wallRef = ref(db, 'theChallenge/wall');
         const settingsRef = ref(db, 'theChallenge/settings');
+        // Follow-up: ward missionaries / helpers, which team each one follows up with,
+        // and a log of who reached out to whom.
+        const followRef = ref(db, 'theChallenge/followup');
 
         const CHALLENGE_DAYS = 21;
         // Hard-pinned so QR codes / flyer links always use the exact (case-sensitive) URL,
@@ -239,7 +242,9 @@
             me: JSON.parse(localStorage.getItem('tc_me2') || '{}'), // {21:id, bom:id, read:id}
             view: 'home',       // home | c/<key> | join/<key> | wall
             leader: false,
-            message: ''
+            message: '',
+            follow: { helpers:{}, assign:{}, contacts:{} },
+            helperId: localStorage.getItem('tc_helper') || ''
         };
         // QR deep-link: #join-21, #join-bom, #join-read
         const h = window.location.hash;
@@ -259,6 +264,7 @@
             render();
         });
         onValue(settingsRef, snap=>{ const d=snap.val(); if(d) state.settings={...state.settings,...d}; render(); });
+        onValue(followRef, snap=>{ const d=snap.val()||{}; state.follow={ helpers:d.helpers||{}, assign:d.assign||{}, contacts:d.contacts||{} }; render(); });
 
         // ---------- helpers ----------
         const allLoaded = () => state.loaded['21'] && state.loaded['bom'] && state.loaded['read'];
@@ -287,7 +293,21 @@
             if (!m.length) return 0;
             return m.reduce((s,p)=>s+personProgress(ck,p),0)/m.length;
         }
-        const totalHandouts = () => state.data['bom'].reduce((s,p)=>s+(p.handouts||0),0);
+        // ---------- follow-up helpers ----------
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+        const helperName = id => (state.follow.helpers[id]||{}).name || '';
+        const myHelper = () => state.follow.helpers[state.helperId] ? state.helperId : '';
+        const teamKey = team => team.replace(/[.#$\[\]\/]/g,'_'); // safe Firebase key
+        const assignedTo = team => state.follow.assign[teamKey(team)] || '';
+        const challengeOfTeam = team => Object.values(CHALLENGES).find(c=>c.teams.includes(team));
+        const daysAgo = ts => Math.max(0, Math.floor((Date.now()-ts)/86400000));
+        const agoLabel = ts => { const d=daysAgo(ts); return d===0?'today':d===1?'yesterday':`${d} days ago`; };
+        const lastActive = p => p.lastActive || Date.parse(p.createdAt) || Date.now();
+        const isFinished = (ck,p) => ck!=='bom' && personProgress(ck,p) >= 1;
+        const quietDays = p => daysAgo(lastActive(p));
+        const needsNudge = (ck,p) => !isFinished(ck,p) && quietDays(p) >= 3;
+
+        const totalHandouts = () =>state.data['bom'].reduce((s,p)=>s+(p.handouts||0),0);
 
         // racer emoji for a team's current progress tier
         function racerFor(ck, prog) {
@@ -359,7 +379,7 @@
             const days=[...(p.days||Array(CHALLENGE_DAYS).fill(false))]; days[dayIdx]=!days[dayIdx];
             const count=days.filter(Boolean).length;
             const completedDate = count>=CHALLENGE_DAYS ? (p.completedDate||new Date().toISOString().split('T')[0]) : null;
-            update(ref(db,`theChallenge/enroll_${ck}/${p.id}`), {days, completedDate});
+            update(ref(db,`theChallenge/enroll_${ck}/${p.id}`), {days, completedDate, lastActive:Date.now()});
         };
         window.checkToday = (ck) => {
             const p=enrollment(ck); if(!p) return;
@@ -369,13 +389,13 @@
             if(next===-1){ showMessage('🏁 All 21 days already done!'); return; }
             days[next]=true; const count=days.filter(Boolean).length;
             const completedDate = count>=CHALLENGE_DAYS ? (p.completedDate||new Date().toISOString().split('T')[0]) : null;
-            update(ref(db,`theChallenge/enroll_${ck}/${p.id}`), {days, completedDate}).then(()=>{ confetti(); celebrate(ck, {...p,days}, beforeSeen, beforeTeam); });
+            update(ref(db,`theChallenge/enroll_${ck}/${p.id}`), {days, completedDate, lastActive:Date.now()}).then(()=>{ confetti(); celebrate(ck, {...p,days}, beforeSeen, beforeTeam); });
         };
         // bom
-        window.addHandout = (n) => { const p=enrollment('bom'); if(!p) return; const beforeSeen=p.seenBadges||[]; const beforeTeam=teamProgress('bom',p.team); const handouts=Math.max(0,(p.handouts||0)+n); update(ref(db,`theChallenge/enroll_bom/${p.id}`),{handouts}).then(()=>{ if(n>0){ confetti(); celebrate('bom', {...p,handouts}, beforeSeen, beforeTeam); } }); };
+        window.addHandout = (n) => { const p=enrollment('bom'); if(!p) return; const beforeSeen=p.seenBadges||[]; const beforeTeam=teamProgress('bom',p.team); const handouts=Math.max(0,(p.handouts||0)+n); update(ref(db,`theChallenge/enroll_bom/${p.id}`),{handouts, lastActive:Date.now()}).then(()=>{ if(n>0){ confetti(); celebrate('bom', {...p,handouts}, beforeSeen, beforeTeam); } }); };
         // read
-        window.adjustChapters = (n) => { const p=enrollment('read'); if(!p) return; const beforeSeen=p.seenBadges||[]; const beforeTeam=teamProgress('read',p.team); const chaptersRead=Math.min(TOTAL_CHAPTERS,Math.max(0,(p.chaptersRead||0)+n)); update(ref(db,`theChallenge/enroll_read/${p.id}`),{chaptersRead}).then(()=>{ if(n>0){ confetti(); celebrate('read', {...p,chaptersRead}, beforeSeen, beforeTeam); } }); };
-        window.setChapters = (val) => { const p=enrollment('read'); if(!p) return; const chaptersRead=Math.min(TOTAL_CHAPTERS,Math.max(0,parseInt(val)||0)); update(ref(db,`theChallenge/enroll_read/${p.id}`),{chaptersRead}); };
+        window.adjustChapters = (n) => { const p=enrollment('read'); if(!p) return; const beforeSeen=p.seenBadges||[]; const beforeTeam=teamProgress('read',p.team); const chaptersRead=Math.min(TOTAL_CHAPTERS,Math.max(0,(p.chaptersRead||0)+n)); update(ref(db,`theChallenge/enroll_read/${p.id}`),{chaptersRead, lastActive:Date.now()}).then(()=>{ if(n>0){ confetti(); celebrate('read', {...p,chaptersRead}, beforeSeen, beforeTeam); } }); };
+        window.setChapters = (val) => { const p=enrollment('read'); if(!p) return; const chaptersRead=Math.min(TOTAL_CHAPTERS,Math.max(0,parseInt(val)||0)); update(ref(db,`theChallenge/enroll_read/${p.id}`),{chaptersRead, lastActive:Date.now()}); };
 
         // wall
         window.postToWall = () => {
@@ -392,8 +412,41 @@
         window.toggleShoutout = (id) => { if(!state.leader) return; const post=state.wall.find(w=>w.id===id); update(ref(db,`theChallenge/wall/${id}`),{shoutout:!post.shoutout}); };
 
         // leader
-        window.enterLeader = () => { const c=prompt('Enter leader code:'); if(c===LEADER_CODE){state.leader=true;render();showMessage('🔑 Leader mode on — tap 🗑️ on any name to remove.');} else if(c!==null) showMessage('Incorrect code.'); };
-        window.exitLeader = () => { state.leader=false; render(); };
+        window.enterLeader = () => { const c=prompt('Enter leader code:'); if(c===LEADER_CODE){state.leader=true;state.view='follow';window.scrollTo(0,0);render();showMessage(myHelper()?`🤝 Welcome, ${helperName(myHelper())}! Here are your groups.`:'🔑 Leader mode on — tap your name to see your groups.');} else if(c!==null) showMessage('Incorrect code.'); };
+        window.exitLeader = () => { state.leader=false; if(state.view==='follow') state.view='home'; render(); };
+
+        // follow-up actions (leader mode only)
+        window.setHelper = (id) => { state.helperId=id; localStorage.setItem('tc_helper', id); render(); };
+        window.addHelper = () => {
+            if(!state.leader) return;
+            const inp=document.getElementById('hName'); const name=(inp&&inp.value||'').trim();
+            if(!name){ alert('Enter a name (e.g. Elder & Sister Taufa)'); return; }
+            const r=push(ref(db,'theChallenge/followup/helpers'), { name, createdAt:Date.now() });
+            if(!myHelper()) setHelper(r.key);
+            showMessage(`🤝 Added ${name}`);
+        };
+        window.removeHelper = (id) => {
+            if(!state.leader) return;
+            const name=helperName(id);
+            if(!confirm(`Remove ${name} as a follow-up helper? Their groups will become unassigned.`)) return;
+            const upd={ [`helpers/${id}`]: null };
+            Object.keys(state.follow.assign).forEach(k=>{ if(state.follow.assign[k]===id) upd[`assign/${k}`]=null; });
+            update(followRef, upd);
+            if(state.helperId===id) setHelper('');
+        };
+        window.assignTeam = (idx, hid) => {
+            if(!state.leader) return;
+            const team=ALL_TEAMS[idx].name;
+            set(ref(db,`theChallenge/followup/assign/${teamKey(team)}`), hid||null);
+        };
+        window.claimTeam = (idx) => { if(!myHelper()){ alert('Tap your name first.'); return; } assignTeam(idx, myHelper()); };
+        window.markContacted = (ck, pid) => {
+            if(!state.leader) return;
+            const by = helperName(myHelper()) || 'Leader';
+            set(ref(db,`theChallenge/followup/contacts/${ck}_${pid}`), { ts:Date.now(), by });
+            const p=state.data[ck].find(x=>x.id===pid);
+            showMessage(`🤝 Logged: reached out to ${p?p.name:'member'}`);
+        };
         // Anyone can remove an entry (fixes accidental / wrong-challenge joins). Confirm guards taps.
         window.removePerson = (ck,id) => { const p=state.data[ck].find(x=>x.id===id); if(!p) return; if(confirm(`Remove ${p.name} from ${CHALLENGES[ck].short}? This deletes their progress.`)){ remove(ref(db,`theChallenge/enroll_${ck}/${id}`)); if(state.me[ck]===id){ delete state.me[ck]; localStorage.setItem('tc_me2',JSON.stringify(state.me)); } showMessage(`Removed ${p.name}.`); } };
         // self-remove: delete my own enrollment from the database (handy for testing)
@@ -424,9 +477,10 @@
                         <div class="flex gap-2 justify-center mb-6 flex-wrap">
                             ${navBtn('home','🏠 Home')}
                             ${navBtn('wall','💬 Wall')}
+                            ${state.leader?navBtn('follow','🤝 Follow-Up'):''}
                             <button onclick="${state.leader?'exitLeader()':'enterLeader()'}" class="px-5 py-2.5 rounded-xl font-black text-sm md:text-base transition-all hover-lift border-2 ${state.leader?'bg-gradient-to-r from-amber-500 to-amber-600 text-white border-amber-700':'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'} shadow">${state.leader?'🔑 Leader ✓':'🔑 Leader'}</button>
                         </div>
-                        ${state.leader?`<div class="text-center mb-4 -mt-2"><span class="inline-block bg-amber-100 text-amber-800 text-xs font-bold px-4 py-1.5 rounded-full border border-amber-300">🔑 Leader mode on — open any challenge and tap 🗑️ next to a name to remove them</span></div>`:''}
+                        ${state.leader?`<div class="text-center mb-4 -mt-2"><span class="inline-block bg-amber-100 text-amber-800 text-xs font-bold px-4 py-1.5 rounded-full border border-amber-300">🔑 Leader mode on${myHelper()?` · 🤝 ${esc(helperName(myHelper()))}`:''} — 🤝 Follow-Up shows your groups · 🗑️ removes a name</span></div>`:''}
                         ${renderView()}
                         <div class="text-center mt-8 pb-6 text-sm text-blue-400">
                             Riverton 24th Tongan Ward · The Challenge 🏁
@@ -440,6 +494,7 @@
         function renderView() {
             if(state.view==='home') return renderHome();
             if(state.view==='wall') return renderWall();
+            if(state.view==='follow') return state.leader ? renderFollowUp() : renderHome();
             if(state.view.startsWith('c/')) return renderChallenge(state.view.split('/')[1]);
             if(state.view.startsWith('join/')) return renderJoin(state.view.split('/')[1]);
             return renderHome();
@@ -621,7 +676,7 @@
             const teams=activeTeams(ck);
             if(!teams.length) return '';
             return `<div class="space-y-4">${teams.map(t=>`<div class="bg-white rounded-3xl shadow-xl p-4 md:p-6 border-2 ${c.border}">
-                <div class="flex items-center justify-between mb-3 flex-wrap gap-2"><h3 class="text-lg md:text-xl font-black ${c.text}">${teamEmoji(t.team)} ${t.team}</h3><span class="${c.bg} ${c.text} px-3 py-1 rounded-full font-bold text-sm">${t.members.length} · ${Math.round(teamProgress(ck,t.team)*100)}%</span></div>
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2"><h3 class="text-lg md:text-xl font-black ${c.text}">${teamEmoji(t.team)} ${t.team}${state.leader?` <span class="ml-1 align-middle text-xs font-bold ${assignedTo(t.team)?'bg-amber-100 text-amber-800 border-amber-300':'bg-gray-100 text-gray-500 border-gray-200'} border px-2 py-0.5 rounded-full">🤝 ${assignedTo(t.team)?esc(helperName(assignedTo(t.team))):'unassigned'}</span>`:''}</h3><span class="${c.bg} ${c.text} px-3 py-1 rounded-full font-bold text-sm">${t.members.length} · ${Math.round(teamProgress(ck,t.team)*100)}%</span></div>
                 <div class="grid sm:grid-cols-2 gap-2">${t.members.map(p=>`<div class="flex items-center justify-between ${c.bg} rounded-xl px-4 py-2 border ${c.border}"><span class="font-bold text-gray-800 text-sm">${teamEmoji(p.team)} ${p.name}</span><span class="flex items-center gap-2"><span class="font-black ${c.text} text-sm">${personValue(ck,p)}</span><button onclick="removePerson('${ck}','${p.id}')" title="Remove ${p.name}" class="text-red-400 hover:text-white hover:bg-red-500 rounded-lg px-2 py-1 text-base border border-red-200 transition-colors">🗑️</button></span></div>`).join('')}</div>
             </div>`).join('')}</div>`;
         }
@@ -674,6 +729,143 @@
             </div>`;
         }
         function wallPost(w,isShout){ const c=CHALLENGES[w.ck]||CHALLENGES['21']; return `<div class="bg-white rounded-2xl p-4 shadow ${isShout?'border-2 border-amber-300':'border border-gray-100'}"><div class="flex items-start justify-between gap-3"><div class="flex-1"><div class="flex items-center gap-2 mb-1 flex-wrap"><span class="font-black text-blue-900">${w.name}</span><span class="bg-gradient-to-r ${c.grad} text-white px-2 py-0.5 rounded-full text-xs font-bold">${c.tag}</span><span class="text-gray-400 text-xs">${w.team||''}</span>${isShout?'<span>📣</span>':''}</div><p class="text-gray-700">${w.text}</p></div>${state.leader?`<div class="flex flex-col gap-1"><button onclick="toggleShoutout('${w.id}')" class="text-amber-500 hover:text-amber-700 text-sm">📣</button><button onclick="deletePost('${w.id}')" class="text-red-400 hover:text-red-600 text-sm">🗑️</button></div>`:''}</div></div>`; }
+
+        // ---------- Follow-Up (leader mode) ----------
+        function renderFollowUp() {
+            const me = myHelper();
+            const helpers = Object.entries(state.follow.helpers).map(([id,h])=>({id,...h})).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+            const myTeams = me ? ALL_TEAMS.filter(t=>assignedTo(t.name)===me) : [];
+            return `<div class="space-y-6">
+                ${renderWhoAmI(me, helpers)}
+                ${me ? renderMyGroups(me, myTeams) : ''}
+                ${renderAssignBoard(helpers)}
+                ${renderHelperList(helpers)}
+            </div>`;
+        }
+
+        function renderWhoAmI(me, helpers) {
+            if (me) return `<div class="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-3xl shadow-xl p-5 flex items-center justify-between flex-wrap gap-3">
+                <div><div class="text-xs font-black uppercase tracking-wider opacity-80">🤝 Following up as</div><div class="text-2xl font-black">${esc(helperName(me))}</div></div>
+                <button onclick="setHelper('')" class="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-xl font-bold text-sm">Not you? switch</button>
+            </div>`;
+            return `<div class="bg-white rounded-3xl shadow-xl p-6 border-2 border-amber-200">
+                <h2 class="text-2xl font-black text-amber-800 mb-1">🤝 Who's following up?</h2>
+                <p class="text-gray-500 font-semibold mb-4">Tap your name to see the groups you're assigned to.</p>
+                ${helpers.length?`<div class="flex flex-wrap gap-2 mb-5">${helpers.map(h=>`<button onclick="setHelper('${h.id}')" class="bg-amber-50 text-amber-900 border-2 border-amber-200 hover:bg-amber-100 px-4 py-2.5 rounded-xl font-black">${esc(h.name)}</button>`).join('')}</div>`:`<p class="text-sm text-gray-400 mb-4">No helpers added yet — add the first one below.</p>`}
+                <div class="flex gap-2 flex-wrap">
+                    <input id="hName" type="text" placeholder="Add your name (e.g. Elder & Sister Taufa)" class="flex-1 min-w-0 px-4 py-3 border-2 border-amber-200 rounded-xl focus:outline-none font-semibold" />
+                    <button onclick="addHelper()" class="bg-gradient-to-r from-amber-500 to-orange-500 text-white px-5 py-3 rounded-xl font-black">+ Add</button>
+                </div>
+            </div>`;
+        }
+
+        function statusPill(ck, p) {
+            if (isFinished(ck,p)) return `<span class="text-[11px] font-black bg-green-100 text-green-800 px-2 py-0.5 rounded-full">🏁 finished</span>`;
+            const q = quietDays(p);
+            if (q >= 7) return `<span class="text-[11px] font-black bg-red-100 text-red-700 px-2 py-0.5 rounded-full">😴 quiet ${q} days</span>`;
+            if (q >= 3) return `<span class="text-[11px] font-black bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">⏳ quiet ${q} days</span>`;
+            return `<span class="text-[11px] font-black bg-green-100 text-green-800 px-2 py-0.5 rounded-full">✓ active ${agoLabel(lastActive(p))}</span>`;
+        }
+
+        function renderMyGroups(me, myTeams) {
+            if (!myTeams.length) return `<div class="bg-white rounded-3xl shadow-xl p-8 text-center border-2 border-amber-200">
+                <div class="text-5xl mb-2">📋</div>
+                <p class="text-xl font-black text-amber-800">No groups assigned to you yet</p>
+                <p class="text-gray-500 font-semibold mt-1">Tap <b>“Take it”</b> on a team below, or ask a leader to assign you.</p>
+            </div>`;
+            const allPeople = myTeams.flatMap(t=>{ const c=challengeOfTeam(t.name); return teamMembers(c.key,t.name).map(p=>({c,p})); });
+            const nudges = allPeople.filter(x=>needsNudge(x.c.key,x.p)).length;
+            return `<div class="bg-white rounded-3xl shadow-xl p-5 md:p-6 border-2 border-amber-200">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+                    <h2 class="text-2xl font-black text-amber-800">📋 My Groups</h2>
+                    <div class="flex gap-2 text-sm font-black">
+                        <span class="bg-blue-50 text-blue-800 px-3 py-1 rounded-full">${myTeams.length} group${myTeams.length!==1?'s':''} · ${allPeople.length} people</span>
+                        ${nudges?`<span class="bg-red-50 text-red-700 px-3 py-1 rounded-full">🔔 ${nudges} need a nudge</span>`:`<span class="bg-green-50 text-green-700 px-3 py-1 rounded-full">✓ all on track</span>`}
+                    </div>
+                </div>
+                <div class="space-y-4">${myTeams.map(t=>renderGroupCard(t)).join('')}</div>
+                <p class="text-xs text-gray-400 mt-4">“Quiet” = no progress logged in the app for 3+ days. Tap <b>🤝 Reached out</b> after you visit, call, or text so the other leaders can see it.</p>
+            </div>`;
+        }
+
+        function renderGroupCard(t) {
+            const c = challengeOfTeam(t.name);
+            const ck = c.key;
+            const members = teamMembers(ck, t.name).sort((a,b)=>(needsNudge(ck,b)-needsNudge(ck,a)) || (quietDays(b)-quietDays(a)));
+            return `<div class="rounded-2xl border-2 ${c.border} overflow-hidden">
+                <div class="${c.bg} px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+                    <div class="font-black ${c.text} text-lg">${t.emoji} ${t.name}</div>
+                    <div class="flex items-center gap-2">
+                        <span class="bg-gradient-to-r ${c.grad} text-white px-2.5 py-0.5 rounded-full text-xs font-black">${c.emoji} ${c.short}</span>
+                        <span class="text-xs font-bold text-gray-600">${members.length} · ${Math.round(teamProgress(ck,t.name)*100)}%</span>
+                    </div>
+                </div>
+                ${members.length ? `<div class="divide-y divide-gray-100">${members.map(p=>{
+                    const contact = state.follow.contacts[`${ck}_${p.id}`];
+                    return `<div class="px-4 py-3 flex items-center justify-between gap-3 flex-wrap ${needsNudge(ck,p)?'bg-red-50/40':''}">
+                        <div class="min-w-0">
+                            <div class="font-black text-gray-800">${esc(p.name)} <span class="font-semibold text-gray-400 text-xs">${esc(p.org||'')}</span></div>
+                            <div class="flex items-center gap-2 flex-wrap mt-1">
+                                <span class="text-xs font-black ${c.text}">${personValue(ck,p)}</span>
+                                ${statusPill(ck,p)}
+                                ${contact?`<span class="text-[11px] font-bold text-gray-500">🤝 reached out ${agoLabel(contact.ts)}${contact.by?' · '+esc(contact.by):''}</span>`:''}
+                            </div>
+                        </div>
+                        <button onclick="markContacted('${ck}','${p.id}')" class="shrink-0 ${contact&&daysAgo(contact.ts)===0?'bg-green-100 text-green-800 border-green-300':'bg-white text-amber-800 border-amber-300 hover:bg-amber-50'} border-2 px-3 py-2 rounded-xl text-sm font-black">${contact&&daysAgo(contact.ts)===0?'✓ Done today':'🤝 Reached out'}</button>
+                    </div>`;}).join('')}</div>`
+                : `<p class="px-4 py-4 text-sm text-gray-400">Nobody has joined this team yet.</p>`}
+            </div>`;
+        }
+
+        function renderAssignBoard(helpers) {
+            const me = myHelper();
+            const covered = ALL_TEAMS.filter(t=>assignedTo(t.name) && state.follow.helpers[assignedTo(t.name)]).length;
+            return `<div class="bg-white rounded-3xl shadow-xl p-5 md:p-6">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+                    <h2 class="text-2xl font-black text-blue-900">🗂️ Group Assignments</h2>
+                    <span class="bg-blue-50 text-blue-800 px-3 py-1 rounded-full text-sm font-black">${covered}/${ALL_TEAMS.length} groups covered</span>
+                </div>
+                ${!helpers.length?`<p class="text-sm text-gray-500 mb-3">Add helpers first, then assign each group to one of them.</p>`:''}
+                <div class="grid md:grid-cols-3 gap-4">
+                    ${Object.values(CHALLENGES).map(c=>`<div class="rounded-2xl border-2 ${c.border} overflow-hidden">
+                        <div class="bg-gradient-to-r ${c.grad} text-white px-4 py-2 font-black">${c.emoji} ${c.short}</div>
+                        <div class="divide-y divide-gray-100">${c.teams.map(team=>{
+                            const idx = ALL_TEAMS.findIndex(x=>x.name===team);
+                            const cur = assignedTo(team);
+                            const n = teamMembers(c.key,team).length;
+                            return `<div class="px-3 py-2.5">
+                                <div class="flex items-center justify-between gap-2 mb-1.5">
+                                    <span class="font-bold text-sm text-gray-800">${teamEmoji(team)} ${team}</span>
+                                    <span class="text-[11px] font-bold text-gray-400 shrink-0">${n} ${n===1?'person':'people'}</span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <select onchange="assignTeam(${idx}, this.value)" class="flex-1 min-w-0 px-2 py-1.5 border-2 ${cur?'border-amber-300 bg-amber-50':'border-gray-200'} rounded-lg text-sm font-semibold">
+                                        <option value="">— unassigned —</option>
+                                        ${helpers.map(h=>`<option value="${h.id}" ${cur===h.id?'selected':''}>${esc(h.name)}</option>`).join('')}
+                                    </select>
+                                    ${me && cur!==me ? `<button onclick="claimTeam(${idx})" class="shrink-0 text-xs font-black bg-amber-500 text-white px-2.5 rounded-lg hover:bg-amber-600">Take it</button>` : ''}
+                                </div>
+                            </div>`;}).join('')}</div>
+                    </div>`).join('')}
+                </div>
+            </div>`;
+        }
+
+        function renderHelperList(helpers) {
+            return `<div class="bg-white rounded-3xl shadow-xl p-5 md:p-6">
+                <h2 class="text-xl font-black text-blue-900 mb-3">👥 Follow-Up Helpers</h2>
+                ${helpers.length?`<div class="grid sm:grid-cols-2 gap-2 mb-4">${helpers.map(h=>{
+                    const n = ALL_TEAMS.filter(t=>assignedTo(t.name)===h.id).length;
+                    return `<div class="flex items-center justify-between bg-blue-50 border border-blue-100 rounded-xl px-4 py-2">
+                        <span class="font-bold text-gray-800 text-sm">${esc(h.name)} <span class="text-xs text-gray-400 font-semibold">· ${n} group${n!==1?'s':''}</span></span>
+                        <button onclick="removeHelper('${h.id}')" title="Remove" class="text-red-400 hover:text-white hover:bg-red-500 rounded-lg px-2 py-1 border border-red-200 transition-colors">🗑️</button>
+                    </div>`;}).join('')}</div>`:`<p class="text-sm text-gray-400 mb-4">No helpers yet.</p>`}
+                ${myHelper()?`<div class="flex gap-2 flex-wrap">
+                    <input id="hName" type="text" placeholder="Add another helper (e.g. Bro. & Sis. Vea)" class="flex-1 min-w-0 px-4 py-2.5 border-2 border-blue-200 rounded-xl focus:outline-none font-semibold" />
+                    <button onclick="addHelper()" class="bg-gradient-to-r from-blue-600 to-sky-600 text-white px-5 py-2.5 rounded-xl font-black">+ Add</button>
+                </div>`:''}
+            </div>`;
+        }
 
         function renderQRCode(ck) {
             const box=document.getElementById('qrBox'); if(!box) return;
