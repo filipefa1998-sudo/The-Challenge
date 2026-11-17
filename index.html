@@ -113,6 +113,9 @@
             kids: [], stories: [], settings: { ...DEFAULTS },
             loaded: { kids:false, settings:false },
             me: localStorage.getItem('ptt_me') || '',
+            // Children this device has added or opened — so one phone can hold a whole family (or a teacher's class)
+            mine: (function(){ try{ const a=JSON.parse(localStorage.getItem('ptt_mine')||'null'); if(Array.isArray(a)) return a; }catch(e){} const m=localStorage.getItem('ptt_me'); return m?[m]:[]; })(),
+            justAdded: [],
             view: 'home', leader: false, message: '', openClass: ''
         };
         // Old QR codes and links (#join-read, #join-21, #join-bom) still work — they open the join page.
@@ -138,6 +141,10 @@
         const weekStart = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - d.getDay()); return d.getTime(); };
         const weekCount = k => logOf(k).filter(x => (x.ts || 0) >= weekStart()).length;
         const me = () => state.kids.find(k => k.id === state.me) || null;
+        const myKids = () => state.mine.map(id => state.kids.find(k => k.id === id)).filter(Boolean);
+        function saveMine(){ try{ localStorage.setItem('ptt_mine', JSON.stringify(state.mine)); }catch(e){} }
+        function addMine(id){ if(!state.mine.includes(id)){ state.mine = [...state.mine, id]; saveMine(); } }
+        function dropMine(id){ state.mine = state.mine.filter(x => x !== id); saveMine(); }
         const kidsIn = c => state.kids.filter(k => k.cls === c).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
         const total = () => state.kids.reduce((s, k) => s + count(k), 0);
         const growFor = n => { let g = GROW[0]; for (const x of GROW) if (n >= x.min) g = x; return g; };
@@ -164,21 +171,32 @@
         // ───────── actions ─────────
         window.setView = v => { state.view = v; window.scrollTo(0, 0); render(); };
         window.openClass = c => { state.openClass = state.openClass === c ? '' : c; render(); };
-        window.pickKid = id => { state.me = id; localStorage.setItem('ptt_me', id); state.view = 'kid'; window.scrollTo(0, 0); render(); };
-        window.switchKid = () => { state.me = ''; localStorage.removeItem('ptt_me'); state.view = 'home'; render(); };
+        window.pickKid = id => { addMine(id); state.me = id; try{ localStorage.setItem('ptt_me', id); }catch(e){} state.view = 'kid'; window.scrollTo(0, 0); render(); };
+        window.switchKid = () => { state.me = ''; try{ localStorage.removeItem('ptt_me'); }catch(e){} state.view = 'home'; window.scrollTo(0,0); render(); };
+        window.forgetMine = (id, ev) => { if(ev) ev.stopPropagation(); if(!confirm('Remove this child from THIS device? Their missions and progress are kept — they just won\'t show in your list here.')) return; dropMine(id); if(state.me===id){ state.me=''; try{ localStorage.removeItem('ptt_me'); }catch(e){} } render(); };
         window.pickClass = (el) => { document.querySelectorAll('[data-cls]').forEach(x => x.classList.remove('ring-4')); el.classList.add('ring-4'); document.getElementById('jClass').value = el.dataset.cls; };
         window.addKid = () => {
-            const name = (document.getElementById('jName').value || '').trim();
-            const cls = document.getElementById('jClass').value;
-            if (!name) { alert('Please type the child’s name'); return; }
+            const nameEl = document.getElementById('jName'); const name = (nameEl?.value || '').trim();
+            const cls = (document.getElementById('jClass')?.value || '').trim();
+            if (!name) { alert('Please type the child’s name'); nameEl?.focus(); return; }
             if (!cls) { alert('Please tap a class'); return; }
-            const dup = state.kids.find(k => (k.name || '').trim().toLowerCase() === name.toLowerCase());
-            if (dup) { pickKid(dup.id); showMessage(`👋 Welcome back, ${dup.name}!`); return; }
+            if (state.dbError) { alert('Not connected to the database yet, so this would not save. Check the internet and try again.'); return; }
+            // Same name already in the same class → let the grown-up choose: use that child, or add a separate one
+            const same = state.kids.find(k => (k.name || '').trim().toLowerCase() === name.toLowerCase() && k.cls === cls);
+            if (same && !confirm(`${same.name} is already in ${cls}. Tap OK to use that child, or Cancel to add a new, separate child with the same name.`)) {
+                // Cancel = add a new separate child → fall through
+            } else if (same) {
+                addMine(same.id); state.justAdded = [same.id, ...state.justAdded.filter(x => x !== same.id)];
+                if (nameEl) nameEl.value = ''; showMessage(`👋 ${same.name} is on your list.`); setTimeout(() => document.getElementById('jName')?.focus(), 60); return;
+            }
             const r = push(ref(db, ROOT + '/kids'), { name, cls, createdAt: Date.now() });
-            document.getElementById('jName').value = '';
-            state.me = r.key; localStorage.setItem('ptt_me', r.key); state.view = 'kid';
-            confetti(); showMessage(`🥚 ${name}'s turtle egg is ready — do a mission to hatch it!`);
+            addMine(r.key); state.justAdded = [r.key, ...state.justAdded];
+            if (nameEl) nameEl.value = '';
+            confetti(); showMessage(`🥚 ${name}'s turtle egg is ready!`);
+            setTimeout(() => document.getElementById('jName')?.focus(), 60);
         };
+        // Finish adding: one child → open it; several → go to Home where all of them show
+        window.finishAdding = () => { const j = state.justAdded; state.justAdded = []; if (j.length === 1) pickKid(j[0]); else { state.view = 'home'; window.scrollTo(0,0); render(); } };
         window.doMission = (mid) => {
             const k = me(); if (!k || !M[mid]) return;
             const before = { stickers: stickersOf(k).map(s => s.id), grow: growFor(count(k)).label, total: total(), cls: classProgress(k.cls) };
@@ -226,6 +244,7 @@
             w.document.close(); setTimeout(() => w.print(), 400);
         };
 
+        window.state = state;   // exposed for quick inspection
         // ───────── render ─────────
         function render() {
             const el = document.getElementById('app');
@@ -308,9 +327,21 @@
             </div>`;
         }
 
+        // A quick switcher of the children this device holds — always offers "add another"
+        function myStrip() {
+            const ks = myKids(); if (!ks.length) return '';
+            return `<div class="card p-4 md:p-5 mb-5">
+                <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
+                    <h3 class="text-lg font-extrabold text-cyan-800">⭐ My children on this device</h3>
+                    <button onclick="setView('join')" class="bg-amber-500 text-white px-4 py-2 rounded-2xl font-black text-sm shadow">➕ Add a child</button>
+                </div>
+                <div class="flex flex-wrap gap-2">${ks.map(k => `<div class="flex items-center bg-cyan-50 border-2 rounded-2xl" style="border-color:${classTint(k.cls)};"><button onclick="pickKid('${k.id}')" class="pl-3 pr-2 py-2 font-black text-gray-800 ${state.me===k.id?'underline':''}">${growFor(count(k)).e} ${esc(k.name)} <span class="font-bold text-gray-400 text-xs">${esc(k.cls)} · ${count(k)}</span></button><button onclick="forgetMine('${k.id}',event)" title="Remove from this device" class="text-gray-400 hover:text-rose-500 px-2 py-2">✕</button></div>`).join('')}</div>
+            </div>`;
+        }
         function renderHome() {
             const th = thought(), cs = classes();
             return `
+                ${myStrip()}
                 <div class="card p-5 mb-5 text-center text-white" style="background:linear-gradient(135deg,#0891b2,#0ea5e9,#22c55e);">
                     <div class="text-xs font-black uppercase tracking-wider opacity-90 mb-1">✨ Today’s thought</div>
                     <p class="text-2xl font-extrabold fun leading-snug">“${th.text}”</p>
@@ -340,7 +371,13 @@
         function renderKid(k) {
             const n = count(k), g = growFor(n), nx = nextGrow(n), wk = weekCount(k), log = logOf(k);
             const lanes = Object.keys(LANES);
+            const others = myKids();
             return `
+                ${others.length > 1 ? `<div class="card p-3 md:p-4 mb-4"><div class="flex items-center gap-2 flex-wrap">
+                    <span class="text-xs font-black text-gray-500 uppercase mr-1">Switch child:</span>
+                    ${others.map(o => `<button onclick="pickKid('${o.id}')" class="px-3 py-1.5 rounded-xl font-black text-sm border-2 ${o.id===k.id?'text-white':'bg-white text-gray-700'}" style="${o.id===k.id?`background:${classTint(o.cls)};border-color:${classTint(o.cls)};`:`border-color:${classTint(o.cls)};`}">${growFor(count(o)).e} ${esc(o.name)}</button>`).join('')}
+                    <button onclick="setView('join')" class="px-3 py-1.5 rounded-xl font-black text-sm bg-amber-500 text-white">➕ Add</button>
+                </div></div>` : ''}
                 <div class="card p-5 md:p-6 mb-5" style="border:4px solid ${classTint(k.cls)};">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div class="flex items-center gap-4">
@@ -413,8 +450,16 @@
                     <div class="grid grid-cols-2 gap-3 mb-5">
                         ${classes().map(c => `<button type="button" data-cls="${esc(c)}" onclick="pickClass(this)" class="rounded-3xl p-3 text-center border-4 bg-white ring-amber-300" style="border-color:${classTint(c)};"><div class="text-4xl">${classTurtle(c)}</div><div class="font-extrabold fun text-lg" style="color:${classTint(c)};">${esc(c)}</div></button>`).join('')}
                     </div>
-                    <button onclick="addKid()" class="w-full bg-emerald-500 text-white py-4 rounded-2xl font-black text-xl shadow-lg">🥚 Get my turtle egg!</button>
-                    <button onclick="setView('home')" class="w-full mt-3 text-sm font-bold text-gray-500 underline">← Back</button>
+                    <div class="flex gap-2">
+                        <button onclick="addKid()" class="flex-1 bg-emerald-500 text-white py-4 rounded-2xl font-black text-xl shadow-lg">➕ Add child</button>
+                        ${(state.justAdded.length || myKids().length) ? `<button onclick="finishAdding()" class="bg-cyan-600 text-white py-4 px-5 rounded-2xl font-black text-lg shadow-lg">✓ Done</button>` : ''}
+                    </div>
+                    ${(() => { const ks = state.justAdded.map(id => state.kids.find(k => k.id === id)).filter(Boolean); return ks.length ? `<div class="mt-4"><div class="text-xs font-black text-emerald-700 mb-2">🥚 Added just now — tap to open their turtle</div><div class="flex flex-wrap gap-2">${ks.map(k => `<button onclick="pickKid('${k.id}')" class="bg-emerald-50 border-2 border-emerald-200 text-emerald-800 px-3 py-2 rounded-2xl font-black text-sm">${growFor(count(k)).e} ${esc(k.name)} · ${esc(k.cls)}</button>`).join('')}</div></div>` : ''; })()}
+                    <div class="mt-4 rounded-2xl p-3 bg-cyan-50 border border-cyan-100">
+                        <p class="text-sm font-bold text-cyan-900">👨‍👩‍👧 Adding more than one? Keep tapping <b>Add child</b> — add your whole family or class, one after another. Nothing is lost between them.</p>
+                        <p class="text-xs font-semibold text-cyan-700 mt-1">Every parent can add their own child at the same time, each on their own phone. 🐢</p>
+                    </div>
+                    <button onclick="state.justAdded=[];setView('home')" class="w-full mt-3 text-sm font-bold text-gray-500 underline">← Back</button>
                 </div>
                 <div class="card p-6 text-center">
                     <h2 class="text-2xl font-extrabold text-cyan-800 mb-3">📱 Scan to join at home</h2>
