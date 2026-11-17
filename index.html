@@ -61,8 +61,8 @@
         const LEADER_CODE = 'riverton24';
         const DEFAULT_CLASSES = ['Nursery', 'Sunbeams', 'CTR', 'Valiant'];
         const DEFAULTS = { goal: 100, reward: 'Primary beach party! 🏖️', perChild: 10 };
-        // Everything for Primary lives under "primary/" — the old Challenge data (theChallenge/…) is left untouched.
-        const ROOT = 'primary';
+        // Primary data lives inside the same "theChallenge" area the database already allows (the old race sign-ups beside it are left untouched).
+        const ROOT = 'theChallenge/primary';
 
         // Missions — small things a child can do to love, share, and invite
         const LANES = {
@@ -119,9 +119,12 @@
         if ((window.location.hash || '').startsWith('#join')) state.view = 'join';
         if (window.location.hash === '#big') state.view = 'big';
 
-        onValue(ref(db, ROOT + '/kids'), s => { const d = s.val() || {}; state.kids = Object.keys(d).map(id => ({ id, ...d[id] })); state.loaded.kids = true; softRender(); });
-        onValue(ref(db, ROOT + '/stories'), s => { const d = s.val() || {}; state.stories = Object.keys(d).map(id => ({ id, ...d[id] })).sort((a, b) => (b.ts || 0) - (a.ts || 0)); softRender(); });
-        onValue(ref(db, ROOT + '/settings'), s => { state.settings = { ...DEFAULTS, ...(s.val() || {}) }; state.loaded.settings = true; softRender(); });
+        // If the database refuses or is slow, still open the app and say what is wrong instead of loading forever
+        const dbFail = (what) => (err) => { console.warn('Database:', what, err && err.message); state.dbError = (err && err.code) || 'error'; state.loaded.kids = true; state.loaded.settings = true; softRender(); };
+        onValue(ref(db, ROOT + '/kids'), s => { const d = s.val() || {}; state.kids = Object.keys(d).map(id => ({ id, ...d[id] })); state.loaded.kids = true; state.dbError = ''; softRender(); }, dbFail('kids'));
+        onValue(ref(db, ROOT + '/stories'), s => { const d = s.val() || {}; state.stories = Object.keys(d).map(id => ({ id, ...d[id] })).sort((a, b) => (b.ts || 0) - (a.ts || 0)); softRender(); }, dbFail('stories'));
+        onValue(ref(db, ROOT + '/settings'), s => { state.settings = { ...DEFAULTS, ...(s.val() || {}) }; state.loaded.settings = true; softRender(); }, dbFail('settings'));
+        setTimeout(() => { if (!(state.loaded.kids && state.loaded.settings)) { state.dbError = state.dbError || 'slow'; state.loaded.kids = true; state.loaded.settings = true; softRender(); } }, 8000);
 
         // ───────── helpers ─────────
         const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
@@ -238,6 +241,7 @@
                             <h1 class="${big ? 'text-6xl' : 'text-4xl md:text-5xl'} font-extrabold text-cyan-900 leading-none">${APP_NAME}</h1>
                             <p class="${big ? 'text-2xl' : 'text-base md:text-lg'} font-bold text-cyan-700 mt-1">${WARD} · Love · Share · Invite</p>
                         </div>
+                        ${state.dbError ? `<div class="mb-4 p-4 bg-rose-100 border-2 border-rose-300 text-rose-900 rounded-3xl font-bold text-center">⚠️ ${state.dbError === 'slow' ? 'Still connecting to the database… check the internet connection. Missions may not save yet.' : 'The database would not let this page in, so nothing can be saved yet. A leader needs to check the Firebase database rules.'}</div>` : ''}
                         ${state.message ? `<div class="mb-4 p-4 bg-emerald-500 text-white rounded-3xl font-black text-center text-lg shadow-xl pop">${esc(state.message)}</div>` : ''}
                         ${big ? `<div class="text-center mb-4"><button onclick="setView('home')" class="bg-white text-cyan-800 border-2 border-cyan-200 px-4 py-2 rounded-2xl font-black text-sm">✕ Close big screen</button></div>` : `
                         <div class="flex gap-2 justify-center mb-5 flex-wrap">
