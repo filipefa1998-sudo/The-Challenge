@@ -115,7 +115,7 @@
             me: localStorage.getItem('ptt_me') || '',
             // Children this device has added or opened — so one phone can hold a whole family (or a teacher's class)
             mine: (function(){ try{ const a=JSON.parse(localStorage.getItem('ptt_mine')||'null'); if(Array.isArray(a)) return a; }catch(e){} const m=localStorage.getItem('ptt_me'); return m?[m]:[]; })(),
-            justAdded: [],
+            justAdded: [], undo: '',
             view: 'home', leader: false, message: '', openClass: ''
         };
         // Old QR codes and links (#join-read, #join-21, #join-bom) still work — they open the join page.
@@ -141,12 +141,14 @@
         const weekStart = () => { const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - d.getDay()); return d.getTime(); };
         const weekCount = k => logOf(k).filter(x => (x.ts || 0) >= weekStart()).length;
         const me = () => state.kids.find(k => k.id === state.me) || null;
-        const myKids = () => state.mine.map(id => state.kids.find(k => k.id === id)).filter(Boolean);
+        const myKids = () => state.mine.map(id => state.kids.find(k => k.id === id)).filter(k => k && !k.archived);
         function saveMine(){ try{ localStorage.setItem('ptt_mine', JSON.stringify(state.mine)); }catch(e){} }
         function addMine(id){ if(!state.mine.includes(id)){ state.mine = [...state.mine, id]; saveMine(); } }
         function dropMine(id){ state.mine = state.mine.filter(x => x !== id); saveMine(); }
-        const kidsIn = c => state.kids.filter(k => k.cls === c).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        const total = () => state.kids.reduce((s, k) => s + count(k), 0);
+        const liveKids = () => state.kids.filter(k => !k.archived);
+        const archivedKids = () => state.kids.filter(k => k.archived).sort((a, b) => (b.archived || 0) - (a.archived || 0));
+        const kidsIn = c => liveKids().filter(k => k.cls === c).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        const total = () => liveKids().reduce((s, k) => s + count(k), 0);
         const growFor = n => { let g = GROW[0]; for (const x of GROW) if (n >= x.min) g = x; return g; };
         const nextGrow = n => GROW.find(x => x.min > n) || null;
         const stickersOf = k => STICKERS.filter(s => s.test(k));
@@ -161,7 +163,7 @@
 
         function confetti(){ const c=document.getElementById('confetti'); const cols=['#f59e0b','#ef4444','#3b82f6','#10b981','#8b5cf6','#ec4899']; for(let i=0;i<60;i++){ const el=document.createElement('div'); el.className='confetti-piece'; el.style.left=Math.random()*100+'%'; el.style.background=cols[Math.floor(Math.random()*cols.length)]; el.style.animationDelay=Math.random()*0.5+'s'; el.style.borderRadius=Math.random()>0.5?'50%':'0'; c.appendChild(el); setTimeout(()=>el.remove(),3000);} }
         let _msgT = null;
-        function showMessage(m){ state.message = m; render(); clearTimeout(_msgT); _msgT = setTimeout(() => { state.message = ''; softRender(); }, 3500); }
+        function showMessage(m){ state.message = m; render(); clearTimeout(_msgT); _msgT = setTimeout(() => { state.message = ''; state.undo = ''; softRender(); }, 5000); }
         // Don't rebuild the page while someone is typing (keeps the keyboard open and the text in place)
         function typing(){ const a = document.activeElement; return !!(a && a.matches && a.matches('input[type=text],textarea')); }
         let _pending = false;
@@ -230,7 +232,15 @@
         window.exitLeader = () => { state.leader = false; if (state.view === 'leader') state.view = 'home'; render(); };
         window.starStoryToggle = id => { if (!state.leader) return; const upd = {}; state.stories.forEach(s => { upd[`${s.id}/star`] = s.id === id ? !s.star : false; }); update(ref(db, ROOT + '/stories'), upd); };
         window.deleteStory = id => { if (!state.leader) return; if (confirm('Delete this story?')) remove(ref(db, `${ROOT}/stories/${id}`)); };
-        window.removeKid = id => { if (!state.leader) return; const k = state.kids.find(x => x.id === id); if (!k) return; if (confirm(`Remove ${k.name}? This deletes their missions.`)) { remove(ref(db, `${ROOT}/kids/${id}`)); if (state.me === id) { state.me = ''; localStorage.removeItem('ptt_me'); } } };
+        // Remove = ARCHIVE (reversible). The child and every mission are kept; they just disappear from the active lists.
+        window.removeKid = id => { if (!state.leader) return; const k = state.kids.find(x => x.id === id); if (!k) return;
+            update(ref(db, `${ROOT}/kids/${id}`), { archived: Date.now() });
+            if (state.me === id) { state.me = ''; try{ localStorage.removeItem('ptt_me'); }catch(e){} }
+            state.undo = id; showMessage(`🧺 ${k.name} moved to Removed — their missions are kept. Restore anytime.`);
+        };
+        window.restoreKid = id => { if (!state.leader) return; const k = state.kids.find(x => x.id === id); if (!k) return; update(ref(db, `${ROOT}/kids/${id}`), { archived: null }); state.undo = ''; showMessage(`↩️ ${k.name} is back.`); };
+        // Delete forever = the real, permanent delete (only from the Removed list, with a clear warning).
+        window.purgeKid = id => { if (!state.leader) return; const k = state.kids.find(x => x.id === id); if (!k) return; if (!confirm(`Permanently DELETE ${k.name} and all of their missions? This cannot be undone.`)) return; remove(ref(db, `${ROOT}/kids/${id}`)); if (state.me === id) { state.me = ''; try{ localStorage.removeItem('ptt_me'); }catch(e){} } dropMine(id); showMessage(`🗑️ ${k.name} deleted permanently.`); };
         window.moveKid = (id, cls) => { if (!state.leader) return; update(ref(db, `${ROOT}/kids/${id}`), { cls }); };
         window.saveSettings = () => {
             if (!state.leader) return;
@@ -261,7 +271,7 @@
                             <p class="${big ? 'text-2xl' : 'text-base md:text-lg'} font-bold text-cyan-700 mt-1">${WARD} · Love · Share · Invite</p>
                         </div>
                         ${state.dbError ? `<div class="mb-4 p-4 bg-rose-100 border-2 border-rose-300 text-rose-900 rounded-3xl font-bold text-center">⚠️ ${state.dbError === 'slow' ? 'Still connecting to the database… check the internet connection. Missions may not save yet.' : 'The database would not let this page in, so nothing can be saved yet. A leader needs to check the Firebase database rules.'}</div>` : ''}
-                        ${state.message ? `<div class="mb-4 p-4 bg-emerald-500 text-white rounded-3xl font-black text-center text-lg shadow-xl pop">${esc(state.message)}</div>` : ''}
+                        ${state.message ? `<div class="mb-4 p-4 bg-emerald-500 text-white rounded-3xl font-black text-center text-lg shadow-xl pop flex items-center justify-center gap-3 flex-wrap"><span>${esc(state.message)}</span>${state.undo && state.leader ? `<button onclick="restoreKid('${state.undo}')" class="bg-white/25 hover:bg-white/35 px-4 py-1.5 rounded-xl text-base">↩ Undo</button>` : ''}</div>` : ''}
                         ${big ? `<div class="text-center mb-4"><button onclick="setView('home')" class="bg-white text-cyan-800 border-2 border-cyan-200 px-4 py-2 rounded-2xl font-black text-sm">✕ Close big screen</button></div>` : `
                         <div class="flex gap-2 justify-center mb-5 flex-wrap">
                             ${navBtn(me() ? 'kid' : 'home', me() ? '🐢 My Turtle' : '🏠 Home', state.view === 'home' || state.view === 'kid')}
@@ -281,7 +291,7 @@
         }
         function navBtn(v, label, on) { on = on === undefined ? state.view === v : on; return `<button onclick="setView('${v}')" class="px-4 py-2.5 rounded-2xl font-black text-sm border-2 shadow ${on ? 'bg-cyan-600 text-white border-cyan-700' : 'bg-white text-cyan-900 border-cyan-200'}">${label}</button>`; }
         function renderView() {
-            if (state.view === 'kid') return me() ? renderKid(me()) : renderHome();
+            if (state.view === 'kid') return (me() && !me().archived) ? renderKid(me()) : renderHome();
             if (state.view === 'trail') return renderGoal() + renderTrail() + renderStarStory();
             if (state.view === 'big') return renderGoal(true) + renderTrail(true) + renderStarStory(true);
             if (state.view === 'stories') return renderStories();
@@ -472,15 +482,15 @@
         function drawQR() { const box = document.getElementById('qrBox'); if (!box || typeof QRCode === 'undefined') return; box.innerHTML = ''; new QRCode(box, { text: PAGE_URL + '#join', width: 200, height: 200, colorDark: '#0e7490', colorLight: '#ffffff', correctLevel: QRCode.CorrectLevel.H }); }
 
         function renderLeader() {
-            const s = state.settings, quiet = state.kids.filter(k => weekCount(k) === 0).sort((a, b) => (a.cls || '').localeCompare(b.cls || '') || (a.name || '').localeCompare(b.name || ''));
-            const byLane = l => state.kids.reduce((t, k) => t + laneCount(k, l), 0);
+            const s = state.settings, quiet = liveKids().filter(k => weekCount(k) === 0).sort((a, b) => (a.cls || '').localeCompare(b.cls || '') || (a.name || '').localeCompare(b.name || ''));
+            const byLane = l => liveKids().reduce((t, k) => t + laneCount(k, l), 0);
             return `<div class="space-y-5">
                 <div class="card p-5 flex items-center justify-between flex-wrap gap-3" style="background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;">
                     <div><div class="text-xs font-black uppercase tracking-wider opacity-90">🔑 Leader page</div><div class="text-2xl font-extrabold fun">Primary presidency & teachers</div></div>
                     <button onclick="exitLeader()" class="bg-white/25 px-4 py-2 rounded-2xl font-black text-sm">Lock</button>
                 </div>
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    ${[[state.kids.length, 'children', '#0891b2'], [total(), 'missions', '#f59e0b'], [byLane('love'), '💛 love', LANES.love.solid], [byLane('share'), '🤲 share', LANES.share.solid], [byLane('invite'), '✉️ invite', LANES.invite.solid]].map(([v, l, c]) => `<div class="card p-4 text-center"><div class="text-3xl font-black" style="color:${c};">${v}</div><div class="text-xs font-black text-gray-500 uppercase">${l}</div></div>`).join('')}
+                    ${[[liveKids().length, 'children', '#0891b2'], [total(), 'missions', '#f59e0b'], [byLane('love'), '💛 love', LANES.love.solid], [byLane('share'), '🤲 share', LANES.share.solid], [byLane('invite'), '✉️ invite', LANES.invite.solid]].map(([v, l, c]) => `<div class="card p-4 text-center"><div class="text-3xl font-black" style="color:${c};">${v}</div><div class="text-xs font-black text-gray-500 uppercase">${l}</div></div>`).join('')}
                 </div>
                 <div class="card p-5 md:p-6">
                     <h3 class="text-xl font-extrabold text-cyan-800 mb-3">⚙️ Settings</h3>
@@ -504,8 +514,16 @@
                             <button onclick="pickKid('${k.id}')" class="font-black text-gray-800 text-sm text-left">${growFor(count(k)).e} ${esc(k.name)} <span class="font-bold text-gray-500">· ${count(k)} (${weekCount(k)} this wk)</span></button>
                             <span class="flex items-center gap-1"><select onchange="moveKid('${k.id}', this.value)" class="text-xs font-bold border border-cyan-200 rounded-lg px-1 py-1">${classes().map(x => `<option ${x === k.cls ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button onclick="removeKid('${k.id}')" title="Remove" class="text-red-500 border border-red-200 rounded-lg px-2 py-1">🗑️</button></span>
                         </div>`).join('') || '<span class="text-sm font-bold text-gray-400">No children yet.</span>'}</div></div>`).join('')}
-                    ${state.kids.filter(k => !classes().includes(k.cls)).length ? `<div class="text-sm font-bold text-amber-700">⚠️ Some children are in a class that is no longer on the list: ${state.kids.filter(k => !classes().includes(k.cls)).map(k => `<button class="underline" onclick="pickKid('${k.id}')">${esc(k.name)} (${esc(k.cls)})</button>`).join(', ')}</div>` : ''}
+                    ${liveKids().filter(k => !classes().includes(k.cls)).length ? `<div class="text-sm font-bold text-amber-700">⚠️ Some children are in a class that is no longer on the list: ${liveKids().filter(k => !classes().includes(k.cls)).map(k => `<button class="underline" onclick="pickKid('${k.id}')">${esc(k.name)} (${esc(k.cls)})</button>`).join(', ')}</div>` : ''}
                 </div>
+                ${archivedKids().length ? `<div class="card p-5 md:p-6">
+                    <h3 class="text-xl font-extrabold text-rose-700 mb-1">🧺 Removed children (${archivedKids().length})</h3>
+                    <p class="text-sm font-bold text-gray-500 mb-3">These are hidden from everyone but <b>not</b> deleted. Restore anytime, or delete one for good.</p>
+                    <div class="grid sm:grid-cols-2 gap-2">${archivedKids().map(k => `<div class="flex items-center justify-between gap-2 bg-rose-50 border border-rose-100 rounded-2xl px-3 py-2">
+                        <span class="font-black text-gray-700 text-sm">${esc(k.name)} <span class="font-bold text-gray-400">· ${esc(k.cls)} · ${count(k)} missions</span></span>
+                        <span class="flex items-center gap-1 shrink-0"><button onclick="restoreKid('${k.id}')" class="bg-emerald-500 text-white px-3 py-1.5 rounded-xl font-black text-sm">↩ Restore</button><button onclick="purgeKid('${k.id}')" title="Delete forever" class="text-rose-500 border border-rose-200 rounded-xl px-2 py-1.5">🗑️</button></span>
+                    </div>`).join('')}</div>
+                </div>` : ''}
                 <div class="text-center"><button onclick="setView('join')" class="bg-amber-500 text-white px-6 py-3 rounded-2xl font-black shadow-lg">📱 QR flyer for parents</button></div>
             </div>`;
         }
